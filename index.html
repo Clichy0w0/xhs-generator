@@ -2,6 +2,9 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>小红书文字长图生成器</title>
 
@@ -214,10 +217,9 @@ body {
   align-content: start;
 }
 
-/* 缩略图容器 — 宽填满网格格，高由 aspect-ratio 锁定 */
+/* 缩略图容器 — 宽高由 JS 显式设 px，兼容所有浏览器 */
 .thumb-wrap {
-  width: 100%;
-  aspect-ratio: 1080 / 1440;
+  flex-shrink: 0;
   border-radius: 6px;
   overflow: hidden;
   box-shadow: 0 4px 20px rgba(0,0,0,0.12);
@@ -849,53 +851,36 @@ body {
 }
 
 /* ================================================================
-   === 响应式：手机/平板适配 ===
+   === 响应式：手机适配 ===
    ================================================================ */
 @media (max-width: 768px) {
-  #app {
-    flex-direction: column;
-    height: auto;
-    min-height: 100vh;
-  }
+  #app { display: block !important; height: auto !important; min-height: 100vh; }
   #sidebar {
-    width: 100%;
-    min-width: 0;
-    max-height: none;
-    padding: 16px 14px;
-    gap: 10px;
-    border-right: none;
-    border-bottom: 1px solid var(--border);
+    display: block !important; width: auto !important; min-width: 0 !important;
+    padding: 14px 12px; gap: 10px;
+    border-right: none; border-bottom: 1px solid var(--border);
   }
-  #sidebar .logo { font-size: 16px; }
-  #sidebar textarea { min-height: 120px; }
-  #sidebar label { font-size: 12px; margin-bottom: -8px; }
-  #sidebar input[type="text"],
-  #sidebar textarea,
-  #sidebar select { font-size: 14px; padding: 10px 12px; }
-  .btn-row { flex-direction: column; }
-  .btn { font-size: 15px; padding: 13px 16px; width: 100%; }
+  #sidebar textarea { min-height: 100px; }
+  #sidebar label { font-size: 12px; margin-bottom: -6px; }
+  #sidebar input, #sidebar textarea, #sidebar select { font-size: 16px !important; }
+  .btn-row { display: flex !important; flex-direction: column; }
+  .btn { width: 100%; font-size: 16px; padding: 14px; }
 
-  #main { flex: 1; min-height: 60vh; }
-  #main-header { padding: 14px 14px; }
-  #main-header h2 { font-size: 15px; }
-
-  /* 手机单列，缩略图撑满宽度 */
+  #main { display: block !important; min-height: 60vh; width: auto !important; }
   #preview-scroll {
-    grid-template-columns: 1fr;
-    padding: 16px 12px;
-    gap: 16px;
+    display: block !important; text-align: center;
+    overflow-y: auto; overflow-x: hidden;
+    padding: 14px 8px;
+  }
+  .thumb-wrap {
+    display: inline-block !important;
+    vertical-align: top;
+    margin: 0 6px 14px;
   }
 
-  /* 弹窗占满屏幕 */
   #lightbox .lb-inner {
-    width: calc(100vw - 24px);
-    height: calc((100vw - 24px) * 1440 / 1080);
-    max-height: 90vh;
+    width: 94vw; height: calc(94vw * 1440 / 1080); max-height: 90vh;
   }
-  #lightbox .lb-page {
-    transform: scale(calc((100vw - 24px) / 1080)) !important;
-  }
-  #lightbox .lb-close { font-size: 28px; top: 8px; right: 14px; }
 }
 </style>
 </head>
@@ -1501,15 +1486,23 @@ function renderAllPages(title, subtitle, contentPages, styleClass, fontClass, co
     wrap.appendChild(inner);
     previewScroll.appendChild(wrap);
 
+    // 计算缩略图尺寸（不用 aspect-ratio 和 %，夸克兼容）
+    const isMobile = window.innerWidth <= 768;
+    const gap = 16;
+    const pad = isMobile ? 24 : 56;
+    const cols = isMobile ? 1 : 4;
+    const availW = window.innerWidth - (isMobile ? 0 : 420) - pad - (cols - 1) * gap;
+    const thumbW = Math.floor(availW / cols);
+    const thumbH = Math.floor(thumbW * PAGE_H / PAGE_W);
+    wrap.style.width = thumbW + 'px';
+    wrap.style.height = thumbH + 'px';
+    const scale = thumbW / PAGE_W;
+    inner.style.transform = `scale(${scale})`;
+
     // 点击放大
     const pageLabel = p.label;
     wrap.style.cursor = 'pointer';
     wrap.addEventListener('click', () => openLightbox(inner, pageLabel));
-
-    // 根据容器实际宽度动态计算缩放比例
-    const wrapperW = wrap.getBoundingClientRect().width;
-    const scale = wrapperW / PAGE_W;
-    inner.style.transform = `scale(${scale})`;
 
     const label = document.createElement('div');
     label.className = 'page-label';
@@ -2083,20 +2076,27 @@ linesSlider.addEventListener('input', () => {
   }
 });
 
-// 窗口大小变化时重新计算缩略图缩放
+// 窗口大小变化时重新计算缩略图尺寸
 let resizeTimer;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => {
-    const thumbs = previewScroll.querySelectorAll('.thumb-inner');
-    thumbs.forEach(inner => {
-      const wrap = inner.parentElement;
-      if (wrap) {
-        const w = wrap.getBoundingClientRect().width;
-        inner.style.transform = `scale(${w / PAGE_W})`;
-      }
+    const isMobile = window.innerWidth <= 768;
+    const gap = 16;
+    const pad = isMobile ? 24 : 56;
+    const cols = isMobile ? 1 : 4;
+    const availW = window.innerWidth - (isMobile ? 0 : 420) - pad - (cols - 1) * gap;
+    const thumbW = Math.floor(availW / cols);
+    const thumbH = Math.floor(thumbW * PAGE_H / PAGE_W);
+    const scale = thumbW / PAGE_W;
+    const wraps = previewScroll.querySelectorAll('.thumb-wrap');
+    wraps.forEach(w => {
+      w.style.width = thumbW + 'px';
+      w.style.height = thumbH + 'px';
+      const inner = w.querySelector('.thumb-inner');
+      if (inner) inner.style.transform = `scale(${scale})`;
     });
-  }, 200);
+  }, 250);
 });
 
 console.log('✅ 小红书文字长图一键生成器 已就绪');
