@@ -5,11 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>小红书文字长图生成器</title>
 
-<!-- ========== PWA 元标签 ========== -->
-<meta name="theme-color" content="#c44b3c">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="文字长图">
+<!-- ========== PWA Manifest + Service Worker ========== -->
+<link rel="manifest" href="manifest.json">
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
 
 <!-- ========== CDN: html2canvas（双 CDN 容灾） ========== -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"
@@ -2046,28 +2048,6 @@ window.addEventListener('resize', () => {
     });
   }, 200);
 });
-
-/* ================================================================
-   === PWA Manifest（在线部署时支持"添加到主屏幕"） ===
-   ================================================================ */
-(function setupManifest() {
-  const m = {
-    name: '小红书文字长图生成器',
-    short_name: '文字长图',
-    start_url: '.',
-    display: 'standalone',
-    background_color: '#f0ece4',
-    theme_color: '#c44b3c',
-    icons: [{
-      src: 'icon-192.png',
-      sizes: '192x192', type: 'image/png', purpose: 'any'
-    }]
-  };
-  const b = new Blob([JSON.stringify(m)], {type:'application/json'});
-  const l = document.createElement('link');
-  l.rel='manifest'; l.href=URL.createObjectURL(b);
-  document.head.appendChild(l);
-})();
 
 console.log('✅ 小红书文字长图一键生成器 已就绪');
 console.log('   - 画布尺寸: ' + PAGE_W + '×' + PAGE_H + ' px');
