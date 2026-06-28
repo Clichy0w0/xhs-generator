@@ -1,0 +1,2080 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>小红书文字长图生成器</title>
+
+<!-- ========== PWA 元标签 ========== -->
+<meta name="theme-color" content="#c44b3c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="文字长图">
+
+<!-- ========== CDN: html2canvas（双 CDN 容灾） ========== -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"
+        onerror="var s=document.createElement('script');s.src='https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js';document.head.appendChild(s);">
+</script>
+
+<style>
+/* ================================================================
+   === 全局 & 布局 ===
+   ================================================================ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --sidebar-w: 420px;
+  --bg: #f0ece4;
+  --panel-bg: #ffffff;
+  --text: #2c2c2c;
+  --text-secondary: #6b6b6b;
+  --accent: #c44b3c;
+  --accent-hover: #a83a2d;
+  --border: #e0dcd5;
+  --radius: 10px;
+  --shadow: 0 2px 16px rgba(0,0,0,0.07);
+}
+
+body {
+  font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+#app {
+  display: flex;
+  height: 100vh;
+  width: 100%;
+}
+
+/* ================================================================
+   === 左侧面板：用户编辑区 ===
+   ================================================================ */
+#sidebar {
+  width: var(--sidebar-w);
+  min-width: var(--sidebar-w);
+  background: var(--panel-bg);
+  box-shadow: var(--shadow);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  padding: 28px 24px;
+  gap: 18px;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+}
+
+#sidebar .logo {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.5px;
+  display: flex; align-items: center; gap: 8px;
+}
+#sidebar .logo span { font-size: 26px; }
+
+#sidebar label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: -12px;
+}
+
+#sidebar input[type="text"],
+#sidebar textarea,
+#sidebar select {
+  width: 100%;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 15px;
+  font-family: inherit;
+  color: var(--text);
+  background: #fafaf8;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  outline: none;
+  resize: vertical;
+}
+#sidebar input[type="text"]:focus,
+#sidebar textarea:focus,
+#sidebar select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(196,75,60,0.08);
+}
+
+#sidebar textarea {
+  flex: 1;
+  min-height: 220px;
+  line-height: 1.7;
+  resize: none;
+}
+
+#sidebar select {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b6b6b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 36px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 13px 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+  letter-spacing: 0.3px;
+}
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+.btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(196,75,60,0.3); }
+.btn-primary:active { transform: translateY(0); }
+
+.btn-secondary {
+  background: #f5f3ef;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.btn-secondary:hover { background: #ebe7e0; }
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.btn-row { display: flex; gap: 10px; }
+.btn-row .btn { flex: 1; }
+
+#status-msg {
+  font-size: 12px;
+  color: var(--text-secondary);
+  min-height: 18px;
+  text-align: center;
+  transition: color 0.3s;
+}
+#status-msg.success { color: #2d7d46; }
+#status-msg.error { color: #c44b3c; }
+
+/* ================================================================
+   === 右侧：预览区 ===
+   ================================================================ */
+#main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#main-header {
+  padding: 18px 28px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fafaf8;
+}
+#main-header h2 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+#main-header .page-count {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+/* 预览滚动区 — 4 列网格，垂直滚动 */
+#preview-scroll {
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 32px 28px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+  align-items: start;
+  align-content: start;
+}
+
+/* 缩略图容器 — 宽填满网格格，高由 aspect-ratio 锁定 */
+.thumb-wrap {
+  width: 100%;
+  aspect-ratio: 1080 / 1440;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+  position: relative;
+  cursor: default;
+  transition: transform 0.2s, box-shadow 0.2s;
+  background: #fff;
+}
+.thumb-wrap:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 30px rgba(0,0,0,0.18);
+}
+.thumb-wrap .page-label {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  background: linear-gradient(transparent, rgba(0,0,0,0.55));
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 20px 10px 8px;
+  text-align: center;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* 缩略图内部：渲染全尺寸页面 + scale 缩小 */
+.thumb-inner {
+  width: 1080px;
+  height: 1440px;
+  transform-origin: top left;
+  position: absolute;
+  top: 0; left: 0;
+  /* transform: scale 由 JS 根据容器宽度动态设置 */
+}
+
+/* ── 大图预览弹窗 ── */
+#lightbox {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.75);
+  z-index: 99999;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+#lightbox.show { display: flex; }
+#lightbox .lb-inner {
+  width: 540px;       /* 1080 × 0.5 */
+  height: 720px;      /* 1440 × 0.5 */
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 16px 60px rgba(0,0,0,0.4);
+  position: relative;
+  cursor: default;
+}
+#lightbox .lb-page {
+  width: 1080px;
+  height: 1440px;
+  transform: scale(0.5);
+  transform-origin: top left;
+  position: absolute;
+  top: 0; left: 0;
+}
+#lightbox .lb-close {
+  position: absolute;
+  top: 16px; right: 24px;
+  font-size: 36px;
+  color: #fff;
+  cursor: pointer;
+  z-index: 1;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+#lightbox .lb-close:hover { opacity: 1; }
+#lightbox .lb-label {
+  position: absolute;
+  bottom: 16px;
+  left: 50%; transform: translateX(-50%);
+  color: rgba(255,255,255,0.7);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* 空状态 */
+#empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #c5c0b8;
+  gap: 12px;
+}
+#empty-state .icon { font-size: 64px; }
+#empty-state p { font-size: 15px; }
+
+/* ================================================================
+   === 截图导出区（离屏） ===
+   ================================================================ */
+#export-area {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: -1;
+}
+.export-page {
+  width: 1080px;
+  height: 1440px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ================================================================
+   === 页面画布基础样式（1080×1440） ===
+   ================================================================ */
+.page-canvas {
+  width: 1080px;
+  height: 1440px;
+  position: relative;
+  overflow: hidden;
+  font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+/* 安全区 */
+.page-safe {
+  position: absolute;
+  top: 150px;
+  bottom: 140px;
+  left: 80px;
+  right: 80px;
+  /* 内容区: 920×1150 */
+}
+
+/* ── 标题字体：默认 MiSans Heavy + 动态导入 ── */
+.font-sys .page-title {
+  font-family: "MiSans Heavy", "MiSans", "MiSans VF", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+}
+
+/* 标题样式 */
+.page-title {
+  font-family: "MiSans Heavy", "MiSans", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  font-weight: 900;
+  font-size: 110px;
+  line-height: 1.15;
+  letter-spacing: 3px;
+  white-space: pre-line;
+}
+
+/* 副标题 */
+.page-subtitle {
+  font-family: "PingFang SC", "Noto Sans SC", "Microsoft YaHei", -apple-system, sans-serif;
+  font-weight: 500;
+  font-size: 38px;
+  line-height: 1.5;
+  opacity: 0.7;
+  margin-top: 22px;
+  white-space: pre-line; /* 支持多行副标题 */
+}
+
+/* 正文段落 */
+.content-para {
+  font-size: var(--body-font-size, 52px);
+  line-height: 1.6;
+  margin: 0 0 1em 0;
+  text-align: left;
+  word-break: break-word;
+}
+
+/* 对话行强调 — 仅左侧淡色竖线区分，不加粗 */
+.content-dialogue {
+  font-weight: 400;
+  border-left: 4px solid rgba(0,0,0,0.12);
+  padding-left: 22px;
+  margin-left: 2px;
+}
+
+/* 列表项 — 简洁缩进 */
+.content-list-item {
+  padding-left: 1.4em;
+}
+
+/* 续行标记 */
+.cont-mark {
+  display: inline-block;
+  color: inherit;
+  opacity: 0.5;
+  font-size: 0.75em;
+  margin-right: 0.3em;
+  font-weight: 600;
+}
+
+/* 页码 */
+.page-number {
+  position: absolute;
+  bottom: 50px;
+  right: 80px;
+  font-family: "SF Mono", "Menlo", monospace;
+  font-size: 22px;
+  color: #999;
+  opacity: 0.6;
+}
+
+/* 页脚省略号 */
+.page-footer-dots {
+  position: absolute;
+  bottom: 50px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 14px;
+  letter-spacing: 8px;
+  color: #bbb;
+}
+
+/* 封面装饰线 */
+.cover-rule {
+  width: 100px;
+  height: 4px;
+  margin: 28px 0;
+}
+
+/* ── 封面通用元素 ── */
+.cover-date {
+  font-family: "SF Mono", "Menlo", monospace;
+  font-size: 22px;
+  letter-spacing: 2px;
+  opacity: 0.55;
+}
+.cover-issue {
+  font-family: "SF Mono", "Menlo", monospace;
+  font-size: 22px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+}
+.cover-category {
+  display: inline-block;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  padding: 6px 18px;
+  margin-bottom: 20px;
+}
+
+/* ── 终端窗口装饰 ── */
+.terminal-header {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 52px;
+  background: rgba(255,255,255,0.03);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  gap: 10px;
+  z-index: 2;
+}
+.terminal-dot {
+  width: 13px; height: 13px;
+  border-radius: 50%;
+}
+.terminal-dot.red  { background: #ff5f57; }
+.terminal-dot.yellow { background: #febc2e; }
+.terminal-dot.green { background: #28c840; }
+.terminal-title {
+  font-family: "SF Mono", "Menlo", monospace;
+  font-size: 16px;
+  color: #8b949e;
+  margin-left: 12px;
+}
+.terminal-path {
+  position: absolute;
+  top: 52px; left: 0; right: 0;
+  height: 36px;
+  background: rgba(255,255,255,0.015);
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  font-family: "SF Mono", "Menlo", monospace;
+  font-size: 16px;
+  color: #58a6ff;
+  z-index: 2;
+}
+.terminal-path span { color: #8b949e; margin-right: 6px; }
+
+/* ================================================================
+   === 风格 1：备忘录风 ===
+   ================================================================ */
+.style-memo .page-canvas {
+  background: #faf6f0;
+}
+.style-memo .page-title {
+  color: #2c1810;
+}
+.style-memo .page-subtitle {
+  color: #6b5c4e;
+}
+.style-memo .cover-rule {
+  background: #d4c5b2;
+}
+.style-memo .content-para {
+  color: #3d3226;
+}
+.style-memo .content-dialogue {
+  color: #5a4a38;
+}
+.style-memo .page-footer-dots {
+  color: #c4b998;
+}
+.style-memo .page-number {
+  color: #c4b998;
+}
+/* 备忘录封面 — 顶部胶带装饰条 */
+.style-memo .memo-tape {
+  position: absolute;
+  top: 0; left: 50%;
+  transform: translateX(-50%);
+  width: 200px; height: 48px;
+  background: rgba(220,210,190,0.6);
+  border-radius: 0 0 6px 6px;
+  pointer-events: none;
+  z-index: 3;
+}
+.style-memo .memo-tape::after {
+  content: '';
+  position: absolute;
+  top: 0; left: -20px; right: -20px;
+  height: 2px;
+  background: rgba(180,160,130,0.3);
+}
+.style-memo .cover-date {
+  color: #b8a590;
+}
+
+/* 备忘录便签纸纹理线条 — 已移除 */
+
+/* ================================================================
+   === 风格 2：杂志风 ===
+   ================================================================ */
+.style-magazine .page-canvas {
+  background: #ffffff;
+}
+.style-magazine .page-title {
+  color: #0a0a0a;
+  font-size: 124px;
+  letter-spacing: 4px;
+  line-height: 1.1;
+}
+.style-magazine .page-subtitle {
+  color: #555;
+  font-weight: 400;
+  font-size: 40px;
+  font-style: italic;
+}
+.style-magazine .cover-rule {
+  background: #d4213d;
+  height: 4px;
+  width: 100px;
+}
+.style-magazine .content-para {
+  color: #1a1a1a;
+}
+.style-magazine .content-dialogue {
+  color: #444;
+  border-left: 3px solid #e0e0e0;
+  padding-left: 20px;
+}
+.style-magazine .page-footer-dots {
+  color: #ccc;
+}
+.style-magazine .page-number {
+  color: #bbb;
+  font-size: 18px;
+}
+/* 杂志风 — 顶部粗色条 + 几何装饰 + 期号 */
+.style-magazine .magazine-top-bar {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 10px;
+  background: #d4213d;
+  pointer-events: none;
+  z-index: 1;
+}
+.style-magazine .magazine-geo-circle {
+  position: absolute;
+  border: 2px solid rgba(0,0,0,0.04);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+}
+.style-magazine .magazine-geo-circle.c1 {
+  width: 500px; height: 500px;
+  top: -180px; right: -160px;
+}
+.style-magazine .magazine-geo-circle.c2 {
+  width: 340px; height: 340px;
+  bottom: -100px; left: -120px;
+}
+.style-magazine .cover-issue {
+  font-family: "SF Mono", "Menlo", monospace;
+  font-size: 20px;
+  color: #d4213d;
+  letter-spacing: 3px;
+}
+.style-magazine .cover-category {
+  background: #1a1a1a;
+  color: #fff;
+  font-size: 18px;
+  letter-spacing: 4px;
+  padding: 6px 18px;
+}
+/* 杂志风封面内容层级 */
+.style-magazine .page-safe { z-index: 2; }
+.style-magazine .page-footer-dots { z-index: 2; }
+
+/* ================================================================
+   === 风格 3：代码暗黑风 ===
+   ================================================================ */
+.style-darkcode .page-canvas {
+  background: #0d1117;
+}
+.style-darkcode .page-title {
+  color: #7ee787;
+  font-size: 90px;
+  line-height: 1.15;
+  /* font-family 由 --title-font 变量驱动 */
+}
+.style-darkcode .page-subtitle {
+  color: #8b949e;
+  font-family: "SF Mono", "Menlo", "Consolas", monospace;
+  font-size: 30px;
+}
+.style-darkcode .cover-rule {
+  background: #30363d;
+  height: 2px;
+  width: 100%;
+}
+.style-darkcode .content-para {
+  color: #c9d1d9;
+  font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  /* font-size 由 --body-font-size 变量控制 */
+}
+.style-darkcode .content-dialogue {
+  color: #a5d6ff;
+  border-left-color: rgba(255,255,255,0.12);
+}
+.style-darkcode .page-footer-dots {
+  color: #30363d;
+}
+.style-darkcode .page-number {
+  color: #484f58;
+  font-family: "SF Mono", "Menlo", "Consolas", monospace;
+}
+/* 代码行号装 */
+.style-darkcode .line-numbers {
+  position: absolute;
+  top: 150px; left: 30px; bottom: 140px;
+  width: 40px;
+  pointer-events: none;
+  z-index: 0;
+  font-family: "SF Mono", "Menlo", "Consolas", monospace;
+  font-size: 18px;
+  color: #30363d;
+  line-height: calc(var(--body-font-size, 52px) * 1.6);
+  text-align: right;
+  overflow: hidden;
+}
+.style-darkcode .page-safe { z-index: 1; }
+
+/* ================================================================
+   === 风格 4：标准排版（文档风） ===
+   ================================================================ */
+.style-doc .page-canvas {
+  background: #ffffff;
+}
+
+/* 封面 — 简洁大标题 */
+.style-doc .page-title {
+  font-family: "Noto Serif SC", "Songti SC", "STSong", serif;
+  font-weight: 700;
+  font-size: 72px;
+  line-height: 1.3;
+  color: #000000;
+  letter-spacing: 0;
+}
+.style-doc .page-subtitle {
+  font-family: "Times New Roman", "Noto Serif SC", serif;
+  font-weight: 400;
+  font-size: 28px;
+  color: #666666;
+  font-style: italic;
+}
+.style-doc .cover-date {
+  font-family: "Inter", "SF Mono", "Menlo", monospace;
+  font-size: 18px;
+  color: #999;
+  letter-spacing: 1px;
+}
+.style-doc .cover-rule {
+  background: #4a9eff;
+  height: 4px;
+  width: 60px;
+}
+
+/* 正文 */
+.style-doc .content-para {
+  color: #333333;
+  font-size: 24px;
+  line-height: 1.8;
+  margin: 0 0 32px 0;
+}
+/* 对话/强调 — 左边蓝色竖线 */
+.style-doc .content-dialogue {
+  color: #000000;
+  font-weight: 500;
+  border-left: 4px solid #4a9eff;
+  padding-left: 20px;
+  margin-left: 2px;
+}
+/* 列表 */
+.style-doc .content-list-item {
+  font-size: 22px;
+  padding-left: 20px;
+  margin-bottom: 8px;
+}
+.style-doc .page-footer-dots {
+  color: #ccc;
+}
+.style-doc .page-number {
+  color: #bbb;
+  font-family: "Inter", "SF Mono", "Menlo", monospace;
+  font-size: 16px;
+}
+
+/* 元数据/代码行 */
+.style-doc .doc-code-block {
+  font-family: "JetBrains Mono", "SF Mono", "Menlo", "Consolas", monospace;
+  font-size: 19px;
+  color: #555;
+  background: #f8f8f8;
+  border-radius: 6px;
+  padding: 16px 22px;
+  margin: 20px 0;
+  line-height: 1.6;
+}
+
+/* ================================================================
+   === 风格 5：诗意排版（文艺剧本风） ===
+   ================================================================ */
+.style-poem .page-canvas {
+  background: #faf8f5;
+}
+/* 封面 — 居中大标题 + 阴影 */
+.style-poem .page-title {
+  font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", "Source Han Sans HC", sans-serif;
+  font-weight: 900;
+  font-size: 110px;
+  line-height: 1.15;
+  color: #5C4033;
+  text-align: left;
+  text-shadow: 2px 3px 6px rgba(92,64,51,0.18);
+  letter-spacing: 4px;
+}
+.style-poem .page-subtitle {
+  font-family: "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  font-weight: 400;
+  font-size: 36px;
+  color: #8b7355;
+  text-align: left;
+  font-style: italic;
+  margin-top: 24px;
+}
+.style-poem .cover-date {
+  font-family: "SF Mono", "Menlo", monospace;
+  font-size: 20px;
+  color: #b8a590;
+  text-align: left;
+  letter-spacing: 3px;
+}
+.style-poem .cover-rule {
+  background: #d4c5b2;
+  height: 2px;
+  width: 120px;
+  margin: 30px auto;
+}
+
+/* 正文 — 透气排版 */
+.style-poem .content-para {
+  color: #1a1a1a;
+  font-size: 34px;
+  line-height: 1.65;
+  margin: 0 0 0.35em 0;
+  text-align: left;
+}
+/* 对话 — 每次说话换行，诗歌节奏感 */
+.style-poem .content-dialogue {
+  color: #3d3226;
+  font-weight: 400;
+  border-left: 3px solid #d4c5b2;
+  padding-left: 24px;
+  margin-left: 4px;
+}
+/* 列表 */
+.style-poem .content-list-item {
+  font-size: 32px;
+  padding-left: 24px;
+  margin-bottom: 6px;
+}
+.style-poem .page-footer-dots {
+  color: #d4c5b2;
+}
+.style-poem .page-number {
+  color: #c4b998;
+  font-family: "SF Mono", "Menlo", monospace;
+  font-size: 18px;
+}
+
+/* ================================================================
+   === Loading spinner ===
+   ================================================================ */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  display: inline-block;
+  width: 18px; height: 18px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+</style>
+</head>
+<body>
+
+<!-- ================================================================
+     === 主应用容器 ===
+     ================================================================ -->
+<div id="app">
+
+  <!-- ========== 左侧：用户编辑区 ========== -->
+  <div id="sidebar">
+    <div class="logo"><span>📝</span> 小红书文字长图生成器</div>
+
+    <label for="title-input">📌 标题</label>
+    <textarea id="title-input" placeholder="输入标题（支持换行）…" rows="2"
+           style="resize:none;min-height:56px;flex:none;"></textarea>
+
+    <label for="date-input">📅 封面日期（留空 = 当天）</label>
+    <input type="text" id="date-input" placeholder="留空自动取当天日期…" maxlength="40"
+           style="font-family:'SF Mono',Menlo,monospace;font-size:14px;">
+
+    <label for="body-input">📄 正文（空行分段）</label>
+    <textarea id="body-input" placeholder="输入正文内容…
+空 1 行 → 段内留白
+空 2 行 → 分为新段落
+
+以「——」开头的第一行将作为封面副标题
+以引号开头的行会有对话强调效果
+以 • 开头的行是列表项"></textarea>
+
+    <label for="style-select">🎨 风格</label>
+    <select id="style-select">
+      <option value="memo">📋 备忘录风 — 温暖纸质感</option>
+      <option value="magazine">📰 杂志风 — 简洁高级感</option>
+      <option value="darkcode">💻 代码暗黑风 — 极客暗色系</option>
+      <option value="doc">📄 标准排版 — 文档风</option>
+      <option value="poem">🎭 诗意排版 — 文艺剧本风</option>
+    </select>
+
+    <label for="font-select">🔤 标题字体</label>
+    <select id="font-select">
+      <option value="sys">MiSans Heavy — 系统默认粗体</option>
+    </select>
+    <div class="btn-row" style="margin-top:-8px;">
+      <button type="button" class="btn btn-secondary" id="btn-import-fonts" style="font-size:13px;padding:8px 12px;">📁 导入字体文件夹</button>
+      <button type="button" class="btn btn-secondary" id="btn-pick-font" style="font-size:13px;padding:8px 12px;">📂 选择单个字体</button>
+    </div>
+    <input type="file" id="font-dir-input" webkitdirectory directory style="display:none;">
+    <input type="file" id="font-file-input" accept=".ttf,.otf,.woff,.woff2" style="display:none;">
+    <div id="custom-font-info" style="display:none;font-size:12px;color:var(--accent);margin-top:-4px;">
+      ✅ 已导入 <span id="custom-font-count">0</span> 款字体
+    </div>
+
+    <label for="lines-slider">📏 每页行数：<span id="lines-label">12</span> 行</label>
+    <input type="range" id="lines-slider" min="9" max="17" value="12" step="1"
+           style="width:100%; accent-color:var(--accent); cursor:pointer;">
+
+    <div class="btn-row">
+      <button class="btn btn-primary" id="btn-generate" onclick="generatePreview()">
+        ✨ 生成预览
+      </button>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" id="btn-download" onclick="downloadAllPNG()" disabled>
+        📥 下载全部 PNG
+      </button>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text-secondary);">
+      <input type="checkbox" id="chk-remember" style="width:auto;accent-color:var(--accent);"> 💾 记住上次内容
+    </label>
+    <div id="status-msg"></div>
+  </div>
+
+  <!-- ========== 右侧：预览区 ========== -->
+  <div id="main">
+    <div id="main-header">
+      <h2>📖 预览</h2>
+      <span class="page-count" id="page-count"></span>
+    </div>
+    <div id="preview-scroll">
+      <div id="empty-state">
+        <div class="icon">🖼️</div>
+        <p>点击「生成预览」查看效果</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== 截图导出区（离屏） ========== -->
+  <div id="export-area"></div>
+
+  <!-- ========== 大图预览弹窗 ========== -->
+  <div id="lightbox" onclick="closeLightbox()">
+    <span class="lb-close">&times;</span>
+    <div class="lb-inner" onclick="event.stopPropagation()">
+      <div class="lb-page" id="lb-page-content"></div>
+    </div>
+    <div class="lb-label" id="lb-label"></div>
+  </div>
+
+</div>
+
+<script>
+/* ================================================================
+   === JavaScript：核心逻辑 ===
+   ================================================================ */
+
+// ── 常量 & 配置 ──────────────────────────────────────────
+const PAGE_W    = 1080;   // 画布宽
+const PAGE_H    = 1440;   // 画布高
+const SAFE_TOP  = 150;
+const SAFE_BOT  = 140;
+const SAFE_L    = 80;
+const SAFE_R    = 80;
+const CONTENT_W = PAGE_W - SAFE_L - SAFE_R;   // 920px
+const CONTENT_H = PAGE_H - SAFE_TOP - SAFE_BOT; // 1160px
+// ── 字号由「每页行数」滑块动态计算 ─────────────────────────
+let linesPerPage = 12;               // 默认 12 行/页
+let FONT_SIZE, LINE_H, CHARS_PER_LINE_ZH, MAX_LINES_PER_PAGE;
+let PARA_MARGIN_LINES = 0.8;       // 段落下边距折合行数（按风格动态调整）
+const LONG_PARA_THRESHOLD = 8;       // 超过此行数才允许断段
+
+/** 根据目标行数反算字号及相关参数 */
+function recalcFontMetrics(targetLines) {
+  const overhead = 5; // 段落间距+底部安全距离折合行数
+  FONT_SIZE = Math.round(CONTENT_H / (1.6 * (targetLines + overhead)));
+  LINE_H    = FONT_SIZE * 1.6;
+  CHARS_PER_LINE_ZH = Math.floor(CONTENT_W / (FONT_SIZE * 1.08));
+  MAX_LINES_PER_PAGE = targetLines - 2; // 底部留 2 行安全距离
+}
+recalcFontMetrics(linesPerPage); // 初始化
+
+// ── DOM 引用 ────────────────────────────────────────────
+const titleInput   = document.getElementById('title-input');
+const dateInput    = document.getElementById('date-input');
+const bodyInput    = document.getElementById('body-input');
+const styleSelect  = document.getElementById('style-select');
+const fontSelect   = document.getElementById('font-select');
+const fontFileInput= document.getElementById('font-file-input');
+const fontDirInput = document.getElementById('font-dir-input');
+const customFontInfo=document.getElementById('custom-font-info');
+const customFontCount=document.getElementById('custom-font-count');
+const btnImportFonts=document.getElementById('btn-import-fonts');
+const btnPickFont  = document.getElementById('btn-pick-font');
+const linesSlider  = document.getElementById('lines-slider');
+const linesLabel   = document.getElementById('lines-label');
+const btnGenerate  = document.getElementById('btn-generate');
+const btnDownload  = document.getElementById('btn-download');
+const chkRemember  = document.getElementById('chk-remember');
+const statusMsg    = document.getElementById('status-msg');
+const previewScroll= document.getElementById('preview-scroll');
+const emptyState   = document.getElementById('empty-state');
+const pageCountEl  = document.getElementById('page-count');
+const exportArea   = document.getElementById('export-area');
+
+// ── 状态 ──────────────────────────────────────────────────
+let currentPages = [];
+let currentStyle = 'memo';
+let currentFont  = 'sys';
+let currentTitle = '';
+let currentSubtitle = '';
+let currentCoverDate = '';
+
+// ── 风格 CSS 类名映射 ─────────────────────────────────────
+const STYLE_CLASS_MAP = {
+  memo:     'style-memo',
+  magazine: 'style-magazine',
+  darkcode: 'style-darkcode',
+  doc:      'style-doc',
+  poem:     'style-poem',
+};
+
+/* ================================================================
+   === 文本解析 ===
+   ================================================================ */
+
+/**
+ * 解析正文：提取副标题、段落列表
+ * 返回 { subtitle, paragraphs }
+ */
+function parseBody(raw) {
+  // 空 1 行 → 段内留白；空 ≥2 行 → 段落分隔
+  const blocks = raw.split(/\n\s*\n\s*\n\s*/).filter(b => b.trim() !== '');
+
+  let subtitle = '';
+  const paragraphs = [];
+
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i].trim();
+    // 第一段如果以 —— 开头，作为副标题
+    if (i === 0 && block.startsWith('——')) {
+      subtitle = block.replace(/^——\s*/, '');
+      continue;
+    }
+    // 按单个换行拆成子行（同一段落内的换行保留）
+    paragraphs.push(block);
+  }
+
+  return { subtitle, paragraphs };
+}
+
+/**
+ * 判断是否为 CJK 字符
+ */
+function isCJK(code) {
+  return (code >= 0x4E00 && code <= 0x9FFF) ||
+         (code >= 0x3400 && code <= 0x4DBF) ||
+         (code >= 0xF900 && code <= 0xFAFF) ||
+         (code >= 0x3000 && code <= 0x303F) ||
+         (code >= 0xFF00 && code <= 0xFFEF);
+}
+
+/**
+ * 估算单行文本占几行（不含换行符）
+ */
+function estimateSingleLine(text) {
+  if (!text) return 0;
+  let units = 0;
+  for (const ch of text) {
+    units += isCJK(ch.charCodeAt(0)) ? 1 : 0.55;
+  }
+  return Math.max(1, Math.ceil(units / CHARS_PER_LINE_ZH));
+}
+
+/**
+ * 估算一个段落的行数（正确处理内部换行）
+ * 中文字符宽度 ≈ 1 单位，ASCII ≈ 0.55 单位
+ */
+function estimateLines(text) {
+  if (!text) return 0;
+  const rawLines = text.split('\n');
+  let total = 0;
+  for (const line of rawLines) {
+    total += estimateSingleLine(line);
+  }
+  // 加上段落下边距折合行数
+  return total + PARA_MARGIN_LINES;
+}
+
+/**
+ * 将段落文本按换行符拆成行数组
+ */
+function splitParaToLines(paraText) {
+  return paraText.split('\n'); // 保留空行（代表有意留白）
+}
+
+/* ================================================================
+   === 分页算法 ===
+   ================================================================ */
+
+/**
+ * 核心分页：将段落列表分配到各页
+ * 规则：
+ *  - 同一段落尽量不拆到两页
+ *  - 段落超过 LONG_PARA_THRESHOLD 行才允许断行，加 ▸ 续行标记
+ *  - 每页内容高度不超过 CONTENT_H
+ */
+function paginate(paragraphs) {
+  const pages = [];           // [{paras: [paraText, ...], pageNum: int}]
+  let currentParas = [];
+  let currentLines = 0;      // 当前页已占用行数（含段落间距）
+
+  for (let pi = 0; pi < paragraphs.length; pi++) {
+    const paraText = paragraphs[pi];
+    const paraLines = estimateLines(paraText);
+    // 段落间距已在 estimateLines 中通过 PARA_MARGIN_LINES 计入，此处 gap=0
+    const gap = 0;
+
+    // 情况 A：段落可以放入当前页
+    if (currentLines + gap + paraLines <= MAX_LINES_PER_PAGE) {
+      currentParas.push(paraText);
+      currentLines += gap + paraLines;
+      continue;
+    }
+
+    // 情况 B：段落放不下，且当前页非空 → 保存当前页，另起新页
+    if (currentParas.length > 0) {
+      pages.push({ paras: [...currentParas], pageNum: pages.length + 2 }); // +2 因为第1页是封面
+      currentParas = [];
+      currentLines = 0;
+    }
+
+    // 情况 C：单段落超过一页容量，允许拆段
+    if (paraLines > MAX_LINES_PER_PAGE && paraLines > LONG_PARA_THRESHOLD) {
+      const subLines = splitParaToLines(paraText);
+      let chunk = [];
+      let chunkLines = 0;
+      let isFirstChunk = true; // 首段不加续行标记
+
+      for (const line of subLines) {
+        const lineEst = estimateSingleLine(line);
+        if (chunkLines + lineEst > MAX_LINES_PER_PAGE && chunk.length > 0) {
+          // 保存当前 chunk 为独立页
+          const prefix = isFirstChunk ? '' : '▸ ';
+          pages.push({
+            paras: [ prefix + chunk.join('\n') ],
+            pageNum: pages.length + 2,
+            isContinuation: !isFirstChunk
+          });
+          chunk = [];
+          chunkLines = 0;
+          isFirstChunk = false;
+        }
+        chunk.push(line);
+        chunkLines += lineEst;
+      }
+      // 剩余行放入当前页缓冲区
+      if (chunk.length > 0) {
+        const prefix = isFirstChunk ? '' : '▸ ';
+        currentParas.push(prefix + chunk.join('\n'));
+        currentLines = chunkLines;
+      }
+      continue;
+    }
+
+    // 情况 D：段落放不下，但不到阈值 → 整个放到新页
+    currentParas.push(paraText);
+    currentLines = paraLines;
+  }
+
+  // 剩余内容入最后一页
+  if (currentParas.length > 0) {
+    pages.push({ paras: [...currentParas], pageNum: pages.length + 2 });
+  }
+
+  return pages;
+}
+
+/* ================================================================
+   === 页面渲染 ===
+   ================================================================ */
+
+/**
+ * 判断某行是否为对话行（以中文引号开头）
+ */
+function isDialogueLine(line) {
+  return /^["“”「」『』‘’]/.test(line.trim());
+}
+
+/**
+ * 判断某行是否为列表项
+ */
+function isListItem(line) {
+  return /^[•\-•‣◦]\s/.test(line.trim());
+}
+
+/**
+ * 渲染段落文本为 HTML 字符串
+ */
+function renderParagraphHTML(paraText) {
+  const lines = paraText.split('\n');
+  return lines.map(line => {
+    const trimmed = line.trim();
+    if (!trimmed) return '';
+
+    let cls = 'content-para';
+    if (isDialogueLine(trimmed)) cls += ' content-dialogue';
+    if (isListItem(trimmed)) cls += ' content-list-item';
+
+    // 续行标记
+    let display = trimmed;
+    if (display.startsWith('▸ ')) {
+      display = '<span class="cont-mark">▸</span>' + escapeHTML(display.slice(2));
+    } else {
+      display = escapeHTML(display);
+    }
+
+    return `<p class="${cls}">${display}</p>`;
+  }).filter(s => s !== '').join('\n');
+}
+
+/**
+ * HTML 转义
+ */
+function escapeHTML(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+/**
+ * 构建封面页 HTML（第 1 页）
+ */
+function buildCoverHTML(title, subtitle, styleClass, coverDate) {
+  const t = escapeHTML(title || '未命名');
+  const hasSub = subtitle && subtitle.trim();
+  const s = hasSub ? escapeHTML(subtitle) : '';
+  // 封面日期：自定义 > 当天
+  const now = new Date();
+  const defDate = `${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')}`;
+  const dateStr = (coverDate && coverDate.trim()) ? escapeHTML(coverDate.trim()) : defDate;
+
+  if (styleClass === 'style-darkcode') {
+    // ═══════════ 代码暗黑风 — 终端窗口 ═══════════
+    // 多行标题：首行加 # 前缀，续行缩进对齐；副标题每行加 // 前缀
+    const titleLines = t.split('\n');
+    const titleHTML = titleLines.map((line, i) =>
+      i === 0
+        ? `<span style="color:#8b949e;"># </span>${line}`
+        : `<span style="color:#8b949e;">  </span>${line}`
+    ).join('\n');
+    const subHTML = s ? s.split('\n').map(line =>
+      `<span style="color:#8b949e;">// </span>${line}`
+    ).join('\n') : '';
+
+    return `
+    <div class="page-canvas">
+      <div class="terminal-header">
+        <div class="terminal-dot red"></div>
+        <div class="terminal-dot yellow"></div>
+        <div class="terminal-dot green"></div>
+        <span class="terminal-title">cover.ts — 小红书文字长图</span>
+      </div>
+      <div class="terminal-path"><span>~ /</span>xhs-generator/</div>
+      <div class="line-numbers"></div>
+      <div class="page-safe" style="display:flex;flex-direction:column;justify-content:center;">
+        <p style="font-family:'SF Mono',Menlo,monospace;font-size:28px;color:#ffa657;margin-bottom:12px;">/**</p>
+        <h1 class="page-title" style="padding-left:36px;">${titleHTML}</h1>
+        ${subHTML ? `<p class="page-subtitle" style="padding-left:36px;">${subHTML}</p>` : ''}
+        <p style="font-family:'SF Mono',Menlo,monospace;font-size:28px;color:#ffa657;margin-top:12px;"> */</p>
+        <div class="cover-rule" style="margin-top:40px;"></div>
+        <p style="font-family:'SF Mono',Menlo,monospace;font-size:18px;color:#8b949e;margin-top:24px;">
+          <span style="color:#7ee787;">const</span> date = <span style="color:#a5d6ff;">"${dateStr}"</span>;
+        </p>
+      </div>
+    </div>`;
+  }
+
+  if (styleClass === 'style-magazine') {
+    // ═══════════ 杂志风 — 顶部红条 + 几何装饰 + 大标题 ═══════════
+    return `
+    <div class="page-canvas">
+      <div class="magazine-top-bar"></div>
+      <div class="magazine-geo-circle c1"></div>
+      <div class="magazine-geo-circle c2"></div>
+      <div class="page-safe" style="display:flex;flex-direction:column;justify-content:center;">
+        <span class="cover-category">W R I T I N G</span>
+        <div style="height:36px;"></div>
+        <h1 class="page-title">${t}</h1>
+        ${s ? `<p class="page-subtitle">${s}</p>` : ''}
+        <div class="cover-rule"></div>
+        <p class="cover-issue">VOL. 01 &nbsp;·&nbsp; ${dateStr}</p>
+      </div>
+    </div>`;
+  }
+
+  if (styleClass === 'style-doc') {
+    // ═══════════ 标准排版 — 简洁文档风 ═══════════
+    return `
+    <div class="page-canvas">
+      <div class="page-safe" style="display:flex;flex-direction:column;justify-content:flex-end;padding-bottom:60px;">
+        <p class="cover-date">${dateStr}</p>
+        <div class="cover-rule" style="margin:18px 0 24px;"></div>
+        <h1 class="page-title">${t}</h1>
+        ${s ? `<p class="page-subtitle">${s}</p>` : ''}
+      </div>
+      <div class="page-footer-dots">· · ·</div>
+    </div>`;
+  }
+
+  if (styleClass === 'style-poem') {
+    // ═══════════ 诗意排版 — 左对齐阴影大标题 ═══════════
+    return `
+    <div class="page-canvas">
+      <div class="page-safe" style="display:flex;flex-direction:column;justify-content:center;align-items:flex-start;">
+        <h1 class="page-title">${t}</h1>
+        ${s ? `<p class="page-subtitle">${s}</p>` : ''}
+        <div class="cover-rule" style="margin-left:0;margin-right:auto;"></div>
+        <p class="cover-date">${dateStr}</p>
+      </div>
+    </div>`;
+  }
+
+  // ═══════════ 备忘录风 — 温暖纸感 + 胶带 + 日期戳 ═══════════
+  return `
+    <div class="page-canvas">
+      <div class="memo-tape"></div>
+      <div class="page-safe" style="display:flex;flex-direction:column;justify-content:center;align-items:flex-start;">
+        <p class="cover-date">${dateStr}</p>
+        <div class="cover-rule" style="width:100px;margin:20px 0 30px;"></div>
+        <h1 class="page-title">${t}</h1>
+        ${s ? `<p class="page-subtitle">${s}</p>` : ''}
+        <div class="cover-rule" style="width:60px;margin:30px 0 20px;"></div>
+      </div>
+      <div class="page-footer-dots">· · ·</div>
+    </div>`;
+}
+
+/**
+ * 构建内容页 HTML（第 2 页起）
+ */
+function buildContentPageHTML(pageData, styleClass) {
+  const { paras, pageNum } = pageData;
+
+  let innerHTML = '';
+
+  // 暗黑风：行号装
+  if (styleClass === 'style-darkcode') {
+    const lineCount = paras.reduce((sum, p) => sum + splitParaToLines(p).length, 0);
+    let numsHTML = '';
+    for (let i = 1; i <= Math.max(lineCount, 20); i++) {
+      numsHTML += `<div>${i}</div>`;
+    }
+    innerHTML += `<div class="line-numbers">${numsHTML}</div>`;
+  }
+
+  // 正文区
+  innerHTML += `<div class="page-safe" style="display:flex;flex-direction:column;">`;
+  for (const para of paras) {
+    innerHTML += renderParagraphHTML(para);
+  }
+  innerHTML += `</div>`;
+
+  // 页脚
+  innerHTML += `<div class="page-footer-dots">· · ·</div>`;
+
+  // 页码
+  innerHTML += `<div class="page-number">${pageNum}</div>`;
+
+  return `<div class="page-canvas">${innerHTML}</div>`;
+}
+
+/**
+ * 渲染所有页面到导出区 & 预览区
+ */
+function renderAllPages(title, subtitle, contentPages, styleClass, fontClass, coverDate) {
+  const styleCSSClass = STYLE_CLASS_MAP[styleClass] || 'style-memo';
+  const fontCSSClass = 'font-' + (fontClass || 'sys');
+
+  // ── 清空 ──
+  exportArea.innerHTML = '';
+  previewScroll.innerHTML = '';
+  if (emptyState) emptyState.style.display = 'none';
+
+  const allPagesHTML = [];
+
+  // ── 第 1 页：封面 ──
+  allPagesHTML.push({
+    html: buildCoverHTML(title, subtitle, styleCSSClass, coverDate),
+    label: '封面',
+    pageNum: 1,
+  });
+
+  // ── 内容页 ──
+  for (const cp of contentPages) {
+    allPagesHTML.push({
+      html: buildContentPageHTML(cp, styleCSSClass),
+      label: `第 ${cp.pageNum} 页`,
+      pageNum: cp.pageNum,
+    });
+  }
+
+  // ── 渲染到导出区（离屏，用于截图） ──
+  for (const p of allPagesHTML) {
+    const wrapper = document.createElement('div');
+    wrapper.className = `export-page ${styleCSSClass} ${fontCSSClass}`;
+    wrapper.setAttribute('data-page', p.pageNum);
+    wrapper.style.setProperty('--body-font-size', FONT_SIZE + 'px');
+    wrapper.innerHTML = p.html;
+    exportArea.appendChild(wrapper);
+  }
+
+  // ── 渲染暗黑风行号 ──
+  if (styleClass === 'darkcode') {
+    exportArea.querySelectorAll('.line-numbers').forEach(ln => {
+      const pageEl = ln.closest('.export-page');
+      if (pageEl) {
+        const pageH = PAGE_H;
+        const startY = SAFE_TOP;
+        const endY = PAGE_H - SAFE_BOT;
+        const availH = endY - startY;
+        const lh = LINE_H; // 统一 32*1.6
+        const count = Math.floor(availH / lh);
+        let nums = '';
+        for (let i = 1; i <= count; i++) nums += `<div>${i}</div>`;
+        ln.innerHTML = nums;
+      }
+    });
+  }
+
+  // ── 渲染到预览区（缩略图） ──
+  for (const p of allPagesHTML) {
+    const wrap = document.createElement('div');
+    wrap.className = 'thumb-wrap';
+
+    const inner = document.createElement('div');
+    inner.className = `thumb-inner ${styleCSSClass} ${fontCSSClass}`;
+    inner.style.setProperty('--body-font-size', FONT_SIZE + 'px');
+    inner.innerHTML = p.html;
+
+    // 暗黑风行号补
+    if (styleClass === 'darkcode') {
+      const ln = inner.querySelector('.line-numbers');
+      if (ln) {
+        const lh = LINE_H;
+        const count = Math.floor(CONTENT_H / lh);
+        let nums = '';
+        for (let i = 1; i <= count; i++) nums += `<div>${i}</div>`;
+        ln.innerHTML = nums;
+      }
+    }
+
+    wrap.appendChild(inner);
+    previewScroll.appendChild(wrap);
+
+    // 点击放大
+    const pageLabel = p.label;
+    wrap.style.cursor = 'pointer';
+    wrap.addEventListener('click', () => openLightbox(inner, pageLabel));
+
+    // 根据容器实际宽度动态计算缩放比例
+    const wrapperW = wrap.getBoundingClientRect().width;
+    const scale = wrapperW / PAGE_W;
+    inner.style.transform = `scale(${scale})`;
+
+    const label = document.createElement('div');
+    label.className = 'page-label';
+    label.textContent = p.label;
+    wrap.appendChild(label);
+  }
+
+  // ── 更新页码显示 ──
+  pageCountEl.textContent = `共 ${allPagesHTML.length} 页`;
+}
+
+/* ================================================================
+   === 生成预览（主入口） ===
+   ================================================================ */
+
+function generatePreview() {
+  const rawTitle = titleInput.value.trim();
+  const rawBody  = bodyInput.value;
+
+  if (!rawTitle && !rawBody.trim()) {
+    setStatus('请至少输入标题或正文内容', 'error');
+    return;
+  }
+
+  currentStyle = styleSelect.value;
+  currentFont  = fontSelect.value;
+  currentCoverDate = dateInput.value;
+
+  // 标准排版风格有固定字号，暂存滑块值，分页时用 24px
+  const savedFontSize = FONT_SIZE;
+  const savedLineH    = LINE_H;
+  const savedCPL      = CHARS_PER_LINE_ZH;
+  const savedMaxLines = MAX_LINES_PER_PAGE;
+  if (currentStyle === 'doc') {
+    FONT_SIZE = 24;
+    LINE_H    = 24 * 1.8;
+    CHARS_PER_LINE_ZH = Math.floor(CONTENT_W / (24 * 1.08));
+    MAX_LINES_PER_PAGE = Math.floor(CONTENT_H / LINE_H) - 5;
+  }
+  if (currentStyle === 'poem') {
+    FONT_SIZE = 34;
+    LINE_H    = 34 * 1.65;
+    CHARS_PER_LINE_ZH = Math.floor(CONTENT_W / (34 * 1.08));
+    MAX_LINES_PER_PAGE = Math.floor(CONTENT_H / LINE_H) - 6;
+    PARA_MARGIN_LINES = 0.25; // 诗意排版段间距紧凑
+  }
+
+  // 解析
+  const { subtitle, paragraphs } = parseBody(rawBody);
+  currentTitle = rawTitle || '未命名';
+  currentSubtitle = subtitle;
+
+  // 分页（doc 风格使用 24px 固定字号）
+  const contentPages = paginate(paragraphs);
+
+  // 恢复滑块字号（doc 风格分页用 24px，渲染用变量保持 CSS 一致）
+  if (currentStyle === 'doc') {
+    FONT_SIZE = 24;
+    LINE_H = 24 * 1.8;
+  } else if (currentStyle === 'poem') {
+    FONT_SIZE = 34;
+    LINE_H = 34 * 1.65;
+    CHARS_PER_LINE_ZH = Math.floor(CONTENT_W / (34 * 1.08));
+    MAX_LINES_PER_PAGE = Math.floor(CONTENT_H / LINE_H) - 6;
+    PARA_MARGIN_LINES = 0.25;
+  } else {
+    FONT_SIZE = savedFontSize;
+    LINE_H    = savedLineH;
+    CHARS_PER_LINE_ZH = savedCPL;
+    MAX_LINES_PER_PAGE = savedMaxLines;
+    PARA_MARGIN_LINES = 0.8;
+  }
+
+  // 存储
+  currentPages = contentPages;
+
+  // 渲染
+  try {
+    renderAllPages(currentTitle, currentSubtitle, contentPages, currentStyle, currentFont, currentCoverDate);
+    setStatus(`✅ 已生成 ${contentPages.length + 1} 页（1 封面 + ${contentPages.length} 正文）`, 'success');
+    btnDownload.disabled = false;
+  } catch (e) {
+    console.error('渲染失败:', e);
+    setStatus('⚠️ 渲染出错，请检查控制台', 'error');
+  }
+}
+
+/* ================================================================
+   === 下载全部 PNG ===
+   ================================================================ */
+
+/**
+ * 生成日期前缀，格式：YYMMDD + 序号
+ */
+let exportCounter = 1;
+function getFilename(date, batch, pageIdx) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  const b = String(batch).padStart(2, '0');
+  const p = String(pageIdx).padStart(2, '0');
+  return `${y}${m}${d}_${b}_page${p}`;
+}
+
+/**
+ * 延迟工具
+ */
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * 下载单张 PNG
+ * @param {HTMLElement} pageEl - 离屏页面 DOM 元素
+ * @param {string} filename - 文件名（不含扩展名）
+ */
+async function captureAndDownload(pageEl, filename) {
+  // 白遮罩盖住界面，clone 在上方全不透明度渲染，确保 html2canvas 捕获正常
+  const cover = document.createElement('div');
+  cover.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:999998;background:#fff;';
+  document.body.appendChild(cover);
+
+  const clone = pageEl.cloneNode(true);
+  clone.style.position = 'fixed';
+  clone.style.left = '0px';
+  clone.style.top = '0px';
+  clone.style.zIndex = '999999';
+  clone.style.opacity = '1';
+  clone.style.width = PAGE_W + 'px';
+  clone.style.height = PAGE_H + 'px';
+  clone.style.pointerEvents = 'none';
+  document.body.appendChild(clone);
+
+  // 等浏览器完成布局渲染
+  await delay(250);
+
+  try {
+    const canvas = await html2canvas(clone, {
+      width: PAGE_W,
+      height: PAGE_H,
+      scale: 2,                     // 2x 高清输出 → 2160×2880
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: '#ffffff',
+      logging: false,
+    });
+
+    // Promise 化 toBlob，确保下载完成再继续
+    await new Promise((resolve, reject) => {
+      canvas.toBlob(blob => {
+        if (!blob) { reject(new Error('toBlob 返回空')); return; }
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename + '.png';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        // 延迟 revoke 以确保下载已触发
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        resolve();
+      }, 'image/png');
+    });
+  } finally {
+    if (clone.parentNode) document.body.removeChild(clone);
+    if (cover.parentNode) document.body.removeChild(cover);
+  }
+}
+
+/**
+ * 下载全部
+ */
+async function downloadAllPNG() {
+  const exportPages = exportArea.querySelectorAll('.export-page');
+  if (exportPages.length === 0) {
+    setStatus('⚠️ 请先生成预览', 'error');
+    return;
+  }
+
+  const now = new Date();
+  const batch = exportCounter++;
+  const total = exportPages.length;
+
+  btnDownload.disabled = true;
+  btnDownload.innerHTML = '<span class="spinner"></span> 正在生成...';
+
+  let successCount = 0;
+  for (let i = 0; i < total; i++) {
+    const pageEl = exportPages[i];
+    const pageNum = i + 1;
+    const filename = getFilename(now, batch, i); // i=0 封面
+
+    setStatus(`📥 正在下载 ${pageNum}/${total}: ${filename}.png`, '');
+    try {
+      await captureAndDownload(pageEl, filename);
+      successCount++;
+    } catch (e) {
+      console.error(`第 ${pageNum} 页下载失败:`, e);
+    }
+
+    // 浏览器可能限制连续下载，加延迟
+    if (i < total - 1) {
+      await delay(300);
+    }
+  }
+
+  setStatus(`✅ 下载完成！成功 ${successCount}/${total} 张 PNG`, successCount === total ? 'success' : 'error');
+  btnDownload.disabled = false;
+  btnDownload.textContent = '📥 下载全部 PNG';
+}
+
+/* ================================================================
+   === 辅助函数 ===
+   ================================================================ */
+
+function setStatus(msg, type) {
+  statusMsg.textContent = msg;
+  statusMsg.className = type || '';
+}
+
+/* ================================================================
+   === 大图预览弹窗 ===
+   ================================================================ */
+function openLightbox(innerEl, label) {
+  const lb = document.getElementById('lightbox');
+  const content = document.getElementById('lb-page-content');
+  const lbl = document.getElementById('lb-label');
+  // 克隆页面内容到弹窗
+  content.innerHTML = innerEl.innerHTML;
+  // 同步 CSS 变量（字体大小）
+  const fs = innerEl.style.getPropertyValue('--body-font-size');
+  if (fs) content.style.setProperty('--body-font-size', fs);
+  content.className = 'lb-page ' + innerEl.className.replace('thumb-inner', '').trim();
+  lbl.textContent = label || '';
+  lb.classList.add('show');
+}
+function closeLightbox() {
+  const lb = document.getElementById('lightbox');
+  lb.classList.remove('show');
+  document.getElementById('lb-page-content').innerHTML = '';
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeLightbox();
+});
+
+/* ================================================================
+   === 初始化 ===
+   ================================================================ */
+
+/* ================================================================
+   === localStorage 记住上次内容 ===
+   ================================================================ */
+const LS_KEY = 'xhs_gen_form';
+
+function saveForm() {
+  if (!chkRemember.checked) return;
+  try {
+    const selOpt = fontSelect.selectedOptions[0];
+    const data = {
+      title: titleInput.value,
+      date:  dateInput.value,
+      body: bodyInput.value,
+      style: styleSelect.value,
+      font:  fontSelect.value,
+      fontLabel: selOpt ? selOpt.textContent : '',
+      lines: linesSlider.value,
+    };
+    localStorage.setItem(LS_KEY, JSON.stringify(data));
+  } catch(e) { /* quota exceeded, ignore */ }
+}
+
+function restoreForm() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (data.title !== undefined) titleInput.value = data.title;
+    if (data.date  !== undefined) dateInput.value  = data.date;
+    if (data.body  !== undefined) bodyInput.value  = data.body;
+    if (data.style !== undefined) {
+      styleSelect.value = data.style;
+      linesSlider.disabled = (data.style === 'doc' || data.style === 'poem');
+    }
+    if (data.font !== undefined) {
+      // 先看 value 是否存在，不存在则按 label 匹配
+      if (fontSelect.querySelector(`option[value="${data.font}"]`)) {
+        fontSelect.value = data.font;
+      } else if (data.fontLabel) {
+        const match = Array.from(fontSelect.options).find(o => o.textContent === data.fontLabel);
+        if (match) fontSelect.value = match.value;
+      }
+    }
+    if (data.lines !== undefined) {
+      linesSlider.value = data.lines;
+      linesLabel.textContent = data.lines;
+      linesPerPage = parseInt(data.lines);
+      recalcFontMetrics(linesPerPage);
+    }
+    chkRemember.checked = true;
+    return true;
+  } catch(e) { return false; }
+}
+
+// 输入变化时自动保存（防抖）
+let saveTimer;
+function autoSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveForm, 600);
+}
+titleInput.addEventListener('input', autoSave);
+dateInput.addEventListener('input', autoSave);
+bodyInput.addEventListener('input', autoSave);
+styleSelect.addEventListener('change', saveForm);
+fontSelect.addEventListener('change', saveForm);
+linesSlider.addEventListener('input', saveForm);
+window.addEventListener('beforeunload', saveForm);
+
+// 页面加载：恢复内容 + 字体目录 + 字体选择 + html2canvas
+window.addEventListener('DOMContentLoaded', async () => {
+  const restored = restoreForm();
+
+  // 如果上次用的是导入字体，先恢复字体目录再匹配选择
+  const savedFontLabel = (() => {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      return raw ? JSON.parse(raw).fontLabel : '';
+    } catch(e) { return ''; }
+  })();
+
+  if (savedFontLabel && savedFontLabel !== '系统默认 — PingFang SC 粗体' && savedFontLabel !== 'MiSans Heavy — 系统默认粗体') {
+    // 需要恢复导入字体，等目录恢复完成后再匹配
+    await autoRestoreFontDir();
+    // 目录恢复后按 label 匹配字体选项
+    const match = Array.from(fontSelect.options).find(o => o.textContent === savedFontLabel);
+    if (match) {
+      fontSelect.value = match.value;
+      currentFont = match.value;
+    }
+  } else {
+    // 不需要导入字体，但仍尝试恢复目录（静默）
+    autoRestoreFontDir();
+  }
+
+  if (restored) {
+    generatePreview();
+  }
+
+  if (typeof html2canvas === 'undefined') {
+    setStatus('⚠️ html2canvas 加载中…', 'error');
+    btnDownload.disabled = true;
+    let retries = 0;
+    const checkInterval = setInterval(() => {
+      if (typeof html2canvas !== 'undefined') {
+        clearInterval(checkInterval);
+        setStatus('', '');
+      }
+      retries++;
+      if (retries > 30) {
+        clearInterval(checkInterval);
+        setStatus('⚠️ html2canvas 加载失败，下载功能不可用。请检查网络连接。', 'error');
+      }
+    }, 1000);
+  }
+  // 不再自动生成预览，等用户输入内容后手动点击
+});
+
+// 监听输入变化，提示用户重新生成
+titleInput.addEventListener('input', () => {
+  if (currentPages.length > 0) {
+    setStatus('💡 内容已修改，请点击「生成预览」更新', '');
+  }
+});
+dateInput.addEventListener('input', () => {
+  if (currentPages.length > 0) {
+    setStatus('💡 日期已修改，请点击「生成预览」更新', '');
+  }
+});
+bodyInput.addEventListener('input', () => {
+  if (currentPages.length > 0) {
+    setStatus('💡 内容已修改，请点击「生成预览」更新', '');
+  }
+});
+styleSelect.addEventListener('change', () => {
+  // 固定字号风格（doc/poem）禁用滑块
+  linesSlider.disabled = (styleSelect.value === 'doc' || styleSelect.value === 'poem');
+  if (currentPages.length > 0) {
+    generatePreview();
+  }
+});
+// ── 字体导入（文件夹批量 / 单文件），支持 File System Access API 记住上次目录 ──
+let importedFonts = [];  // [{value, label, family}]
+let fontStyleEl = null;
+
+function ensureFontStyleEl() {
+  if (!fontStyleEl) {
+    fontStyleEl = document.createElement('style');
+    fontStyleEl.id = 'imported-fonts-style';
+    document.head.appendChild(fontStyleEl);
+  }
+  return fontStyleEl;
+}
+
+function rebuildFontStyle() {
+  const el = ensureFontStyleEl();
+  el.textContent = importedFonts.map(f =>
+    `.font-${f.value} .page-title{font-family:'${f.family}',"MiSans Heavy","PingFang SC","Microsoft YaHei",sans-serif;}`
+  ).join('\n');
+}
+
+function addFontToDropdown(font) {
+  if (importedFonts.some(f => f.value === font.value)) return;
+  importedFonts.push(font);
+  const opt = document.createElement('option');
+  opt.value = font.value;
+  opt.textContent = font.label;
+  fontSelect.appendChild(opt);
+  rebuildFontStyle();
+  customFontCount.textContent = importedFonts.length;
+  customFontInfo.style.display = 'block';
+}
+
+function processFontFile(file) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!['ttf','otf','woff','woff2'].includes(ext)) return;
+  const blobUrl = URL.createObjectURL(file);
+  const fmt = { ttf:'truetype', otf:'opentype', woff:'woff', woff2:'woff2' };
+  const family = 'f' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
+  const label = file.name.replace(/\.[^.]+$/, '');
+  const value = 'imp_' + family;
+
+  const s = document.createElement('style');
+  s.textContent = `@font-face{font-family:'${family}';src:url('${blobUrl}') format('${fmt[ext]}');font-display:swap;}`;
+  document.head.appendChild(s);
+
+  addFontToDropdown({ value, label, family });
+}
+
+/** 从 FileSystemHandle 列表中读取文件 */
+async function importFromHandles(handles) {
+  for (const [name, handle] of handles) {
+    if (handle.kind !== 'file') continue;
+    const ext = name.split('.').pop().toLowerCase();
+    if (!['ttf','otf','woff','woff2'].includes(ext)) continue;
+    try {
+      const file = await handle.getFile();
+      processFontFile(file);
+    } catch(e) { /* skip inaccessible */ }
+  }
+  if (importedFonts.length > 0) {
+    fontSelect.value = importedFonts[importedFonts.length - 1].value;
+    currentFont = fontSelect.value;
+    if (currentPages.length > 0) generatePreview();
+  }
+}
+
+// ── IndexedDB 持久化目录句柄 ──
+function openFSDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('xhs-font-dir', 1);
+    req.onupgradeneeded = () => { req.result.createObjectStore('handles'); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function saveDirHandle(handle) {
+  try {
+    const db = await openFSDB();
+    const tx = db.transaction('handles', 'readwrite');
+    tx.objectStore('handles').put(handle, 'lastDir');
+    await new Promise(r => { tx.oncomplete = r; });
+  } catch(e) { /* IndexedDB unavailable */ }
+}
+async function loadDirHandle() {
+  try {
+    const db = await openFSDB();
+    const tx = db.transaction('handles', 'readonly');
+    const handle = await new Promise(r => {
+      const req = tx.objectStore('handles').get('lastDir');
+      req.onsuccess = () => r(req.result);
+      req.onerror = () => r(null);
+    });
+    if (!handle) return null;
+    // 验证权限
+    const opts = { mode: 'read' };
+    if (await handle.queryPermission(opts) === 'granted') return handle;
+    if (await handle.requestPermission(opts) === 'granted') return handle;
+    return null;
+  } catch(e) { return null; }
+}
+
+// ── 按钮事件 ──
+btnImportFonts.addEventListener('click', async () => {
+  // 优先尝试 File System Access API（可记住目录）
+  if (window.showDirectoryPicker) {
+    try {
+      const dirHandle = await window.showDirectoryPicker({ mode: 'read' });
+      await saveDirHandle(dirHandle);
+      const handles = [];
+      try {
+        for await (const entry of dirHandle.values()) {
+          handles.push([entry.name, entry]);
+        }
+      } catch(e) {
+        // 目录枚举失败（通常是系统保护目录）
+        alert('⚠️ 此目录无法读取（可能受系统保护）。\n\n建议：把需要的字体文件复制到一个普通文件夹（如"文档\\我的字体"），再导入那个文件夹。');
+        return;
+      }
+      await importFromHandles(handles);
+      return;
+    } catch(e) {
+      if (e.name === 'AbortError') return;
+      // Permission denied 等系统级错误
+      if (e.name === 'NotAllowedError' || e.name === 'SecurityError') {
+        alert('⚠️ 浏览器无法访问此目录（系统保护）。\n\n请把字体复制到一个普通文件夹再导入。');
+        return;
+      }
+    }
+  }
+  // 回退：传统 webkitdirectory
+  fontDirInput.click();
+});
+btnPickFont.addEventListener('click', () => fontFileInput.click());
+
+// 传统 webkitdirectory 回退
+fontDirInput.addEventListener('change', () => {
+  const files = Array.from(fontDirInput.files || []);
+  if (!files.length) return;
+  files.forEach(processFontFile);
+  fontSelect.value = importedFonts[importedFonts.length - 1]?.value || 'sys';
+  currentFont = fontSelect.value;
+  if (currentPages.length > 0) generatePreview();
+});
+
+// 单文件导入
+fontFileInput.addEventListener('change', () => {
+  const file = fontFileInput.files[0];
+  if (!file) return;
+  processFontFile(file);
+  fontSelect.value = importedFonts[importedFonts.length - 1].value;
+  currentFont = fontSelect.value;
+  if (currentPages.length > 0) generatePreview();
+});
+
+// 下拉切换
+fontSelect.addEventListener('change', () => {
+  currentFont = fontSelect.value;
+  if (currentPages.length > 0) generatePreview();
+});
+
+// ── 页面启动时尝试自动恢复上次导入的字体目录 ──
+async function autoRestoreFontDir() {
+  if (!window.showDirectoryPicker) return; // 需要 File System Access API
+  const handle = await loadDirHandle();
+  if (!handle) return;
+  try {
+    const handles = [];
+    for await (const entry of handle.values()) {
+      handles.push([entry.name, entry]);
+    }
+    await importFromHandles(handles);
+  } catch(e) { console.log('字体自动恢复失败: ' + e.message); }
+}
+
+linesSlider.addEventListener('input', () => {
+  const val = parseInt(linesSlider.value);
+  linesLabel.textContent = val;
+  linesPerPage = val;
+  recalcFontMetrics(val);
+  if (currentPages.length > 0) {
+    generatePreview(); // 行数变化即时重算字号并重新生成
+  }
+});
+
+// 窗口大小变化时重新计算缩略图缩放
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    const thumbs = previewScroll.querySelectorAll('.thumb-inner');
+    thumbs.forEach(inner => {
+      const wrap = inner.parentElement;
+      if (wrap) {
+        const w = wrap.getBoundingClientRect().width;
+        inner.style.transform = `scale(${w / PAGE_W})`;
+      }
+    });
+  }, 200);
+});
+
+/* ================================================================
+   === PWA Manifest（在线部署时支持"添加到主屏幕"） ===
+   ================================================================ */
+(function setupManifest() {
+  const m = {
+    name: '小红书文字长图生成器',
+    short_name: '文字长图',
+    start_url: '.',
+    display: 'standalone',
+    background_color: '#f0ece4',
+    theme_color: '#c44b3c',
+    icons: [{
+      src: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="20" fill="#c44b3c"/><text x="50" y="68" font-size="55" text-anchor="middle" fill="white">字</text></svg>'),
+      sizes: '192x192', type: 'image/svg+xml'
+    }]
+  };
+  const b = new Blob([JSON.stringify(m)], {type:'application/json'});
+  const l = document.createElement('link');
+  l.rel='manifest'; l.href=URL.createObjectURL(b);
+  document.head.appendChild(l);
+})();
+
+console.log('✅ 小红书文字长图一键生成器 已就绪');
+console.log('   - 画布尺寸: ' + PAGE_W + '×' + PAGE_H + ' px');
+console.log('   - 安全区: top=' + SAFE_TOP + ' bottom=' + SAFE_BOT + ' left=' + SAFE_L + ' right=' + SAFE_R);
+console.log('   - 每页行数: ' + linesPerPage + ', 正文字号: ' + FONT_SIZE + 'px, 行高: ' + LINE_H.toFixed(1) + 'px');
+console.log('   - 每行约 ' + CHARS_PER_LINE_ZH + ' 个中文字');
+</script>
+
+</body>
+</html>
